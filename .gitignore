@@ -3,5 +3,10 @@
 *.css
 *.m~
 data
+datadb
+datadb.zip
 .git.bfg-report
-*.md.swo
+*.md.sw?
+octave-workspace
+git_log.txt
+git_summary.txt

@@ -4,7 +4,6 @@ build/*
 *.gif
 *.pickle
 run*rst
-cosmo*rst
 make*rst
 *.zip
 .buildinfo
@@ -23,3 +22,8 @@ NIFTI
 *.m~
 run*.html
 run*.png
+index.html
+modindex*.rst
+contents_*
+matlab
+publish

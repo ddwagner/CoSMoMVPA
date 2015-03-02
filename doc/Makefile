@@ -3,7 +3,7 @@
 
 # You can set these variables from the command line.
 SPHINXOPTS    =
-SPHINXBUILD   = ./matlab2rst.py;sphinx-build  #NNO little hack to run conversion first
+SPHINXBUILD   = ./matlab2rst.py && ./summarize_git_log.py && sphinx-build  #NNO little hack to run conversion first
 PAPER         =
 BUILDDIR      = build
 
@@ -40,8 +40,13 @@ help:
 
 clean:
 	-rm -rf $(BUILDDIR)/*
-	-rm source/run_*.rst
-	-rm source/cosmo_*.rst
+	-rm -f source/matlab/run_*.rst
+	-rm -f source/matlab/cosmo_*.rst
+	-rm -f source/matlab/demo_*.rst
+	-rm -f source/*modindex*.rst
+	-rm -rf source/matlab
+	-rm -f source/_static/git_log.txt
+	-rm -f source/_static/git_summary.txt
 
 html:
 	$(SPHINXBUILD) -b html $(ALLSPHINXOPTS) $(BUILDDIR)/html

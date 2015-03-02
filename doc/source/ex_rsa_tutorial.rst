@@ -12,7 +12,7 @@ our six animals. The v1 model DSM was made by modeling each stimulus image
 (jpeg) with a simple v1 cortical model, and then calculating the vector
 distances between the stimuli using the features of the model.  The behavioral
 DSM was made by having human subjects judge the similarity between every pair of
-animals. 
+animals.
 
 Note that these are ordinary DSMs that have zeros on the diagonal and are
 symmetric about the diagonal. Use matlabs **imagesc** to view each DSM:
@@ -23,10 +23,10 @@ symmetric about the diagonal. Use matlabs **imagesc** to view each DSM:
     load behav_sim;
     subplot(1,2,1); imagesc(v1_model); title('V1 Model DSM');
     subplot(1,2,2); imagesc(behav); title('Behavioral DSM');
-    
+
 
 The categorical structure is obvious in the categorical dissimilarity, but not
-in the v1 model DSM. 
+in the v1 model DSM.
 
 Now use matlab's **linkage** function to do hierarchical clustering on the DSMs.
 **linkage** takes input in the form of the flattered upper triangle of the DSM
@@ -40,8 +40,8 @@ Here is how to do this with the behavioral similarity:
    hclus = linkage(squareform(behav));
    % We also want to have labels on our dendrogram
    labels = {'monkey','lemur','mallard','warbler','ladybug','lunamoth'};
-   figure(); 
-   dendrogram(hclus, 'labels',labels); 
+   figure();
+   dendrogram(hclus, 'labels',labels);
    title('Behavioral DSM - linkage');
 
 Now let's use Matlab's classic multidimensional scaling (**cmdscale**) to look at
@@ -50,7 +50,7 @@ dimension and stimulus. To view the first 2 dimensions we can use matlab's
 **text** function:
 
 .. code-block:: matlab
-   
+
    F = cmdscale(behav);
    figure();
    text(F(:,1), F(:,2), labels);
@@ -70,12 +70,9 @@ will need to use matlab's subplot function for this.
 
 .. image:: _static/visualize.png
 
-Hint: run_rsa_visualize_skl_
+Hint: :ref:`run_rsa_visualize_skl`.
 
-Solution: run_rsa_visualize_
-
-.. _run_rsa_visualize_skl: run_rsa_visualize_skl.html
-.. _run_rsa_visualize: run_rsa_visualize.html
+Solution: :ref:`run_rsa_visualize`.
 
 Now using the script you wrote to visualize EV and LV, go through the set of
 subjects and see how the patterns change for different subjects. What trends do
@@ -91,7 +88,7 @@ the same whether you are dealing with 3 voxels or 3 hundred. Remember that our
 fMRI data comes from a time-course analysis that included some estimation of the
 *baseline* activity for each voxel. The statistics we have for our categories
 are estimations of the differences from that baseline.  This means that the
-origin of our vector space corresponds to that *arbitrary* baseline. 
+origin of our vector space corresponds to that *arbitrary* baseline.
 
 Because correlation distance is a measure of the angles between vectors, it is
 sensitive to where the data cloud resides with respect to the origin. Ideally,
@@ -112,9 +109,7 @@ Thus before calculating a neural DSM, it is good to center the data first by
 demeaning. Rerun your visualization script above by centering the data first.
 How does this change the results?
 
-Solution: run_demean_
-
-.. _run_demean: run_demean.html
+Solution: :ref:`run_demean`
 
 Comparing dissimilarity matrices
 ++++++++++++++++++++++++++++++++
@@ -128,11 +123,11 @@ behavioral DSMs to make it a 12x15 matrix. Now compute the cross-correlation
 matrix using **corrcoef**. Visualize the cross-correlation matrix with
 **imagesc**. Try this with demeaning and without demeaning to compare the
 results. Finally, use matlabs **boxplot** function to view the distributions of
-correlations between neural simiilarities and model/behavioral DSMs. 
+correlations between neural simiilarities and model/behavioral DSMs.
 
-Hint: run_compare_dsm_skl_
+Hint: :ref:`run_compare_dsm_skl`.
 
-Solution: run_compare_dsm_
+Solution: :ref:`run_compare_dsm`.
 
 Target dissimilarity matrix correlation measure
 +++++++++++++++++++++++++++++++++++++++++++++++
@@ -140,24 +135,17 @@ Target dissimilarity matrix correlation measure
 Now write a function that calculates the correlation between a target
 dissimilarity and the dissimilarity matrix calculated from a dataset. This
 function should conform to the function signature of a dataset measure.
+Use this as a starting point: :ref:`cosmo_target_dsm_corr_measure_skl`
 
-.. include:: cosmo_target_dsm_corr_measure_skl.rst
-
-Solution: cosmo_target_dsm_corr_measure_
-
-.. _cosmo_target_dsm_corr_measure: cosmo_target_dsm_corr_measure.html
-
-.. _run_compare_dsm_skl: run_compare_dsm_skl.html
-.. _run_compare_dsm: run_compare_dsm.html
+Solution: :ref:`cosmo_target_dsm_corr_measure`
 
 Target dissimilarity matrix searchlight
 +++++++++++++++++++++++++++++++++++++++
 Now use this measure to map where the neural similarity is similar to the behavioural similarity.
 
-Hint: run_rsm_measure_searchlight_skl_
+Hint: :ref:`run_rsm_measure_searchlight_skl`
 
-Solution: run_rsm_measure_searchlight_ / run_rsm_measure_searchlight_pb_
+Solution: :ref:`run_rsm_measure_searchlight` / run_rsm_measure_searchlight_pb_
 
-.. _run_rsm_measure_searchlight_skl: run_rsm_measure_searchlight_skl.html
-.. _run_rsm_measure_searchlight: run_rsm_measure_searchlight.html
-.. _run_rsm_measure_searchlight_pb: _static/publish/run_rsm_measure_searchlight.html
+.. _run_rsm_measure_searchlight_pb: _static/publish/run_rmm_measure_searchlight.html
+

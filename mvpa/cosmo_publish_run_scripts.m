@@ -1,177 +1,291 @@
-function cosmo_publish_build_html(force)
-% helper function to publish the run_* scripts of cosmo. Intended for
-% developers only.
+function cosmo_publish_run_scripts(varargin)
+% helper function to publish example scripts (for developers)
 %
-% cosmo_publish_build_html([force])
-% 
+% cosmo_publish_build_html([force|fn])
+%
 % Inputs:
-%   force        boolean; indicates whether to always rebuild the output 
-%                even if it already exists. If false (the default), then
-%                only run_* scripts that are newer than the output are
-%                published again. If true, all run_* scripts are published
-%                (rebuilt)
+%   fn           filename of matlab file to publish (in the examples
+%                directory)
+%   '-force'     force rebuild, even if an output file is newer than the
+%                corresponding output file
+%   '-dry'       dry run: show which files would be published
 %
-% Notes to developers: 
-% - for this function to function properly, it is required that 
-%   comso_get_data_path returns an absolute path. This is because this 
-%   function makes copies of the run_* scripts in a temporary directory 
-%   with lines containing '% >>' or '% <<' removed, and scripts are run 
-%   from that directory. When cosmo_get_data_path does not return an
-%   absolute path then it may be unable to find the comso example data.
-% - this function should be run from the cosmo root directory.
+% Notes:
+%  - if no filename is given, then all files are rebuilt if necessary
+%  - this function is intended for developers (to build the website)
+%  - whether an output file is out of date is first determined using
+%    git: if git shows no changes to the last commit of the input file
+%    then it is assumed it is not out of date. If the input file has
+%    been changed since the last commit (or never been comitted), then
+%    the modification date is used to determine whether it is out of date.
+%  - requirements
+%    * a Unix-like system
+%    * a working installation of git
+%    * CoSMoMVPA code present in a git repository
+%
+% NNO Sep 2014
 
+    [force, srcpat, dryrun]=process_input(varargin{:});
 
-pdir=pwd();
-medir=fileparts(which(mfilename()));
-if ~strcmpi(pdir, medir)
-    error('The function %s should be run from its root directory (%s)',...
-            mfilename(), medir)
-end
-srcdir=fullfile(pdir,'.');
-trgdir=fullfile(pdir,'..//doc/source/_static/publish/');
+    % save original working directory
+    pdir=pwd();
+    cleaner1=onCleanup(@()cd(pdir));
 
-if isunix()
-    tmpdir='/tmp';
-else
-    error('Not implemented: temporary directory on non-unix platforms');
-end
+    % run from CoSMoMVPA directory
+    medir=fileparts(which(mfilename()));
+    cd(medir);
 
-srcpat='run_*';
-srcext='.m';
-trgext='.html';
+    % set paths, relative to the location of this function
+    srcdir=fullfile(medir,'../examples/');
+    trgdir=fullfile(medir,'..//doc/source/_static/publish/');
 
-summaryfn='index.html';
+    srcext='.m';
+    trgext='.html';
 
-if nargin<1
-    force=false;
-end
+    summaryfn='index.html';
 
-if ~exist(trgdir,'file');
-    mkdir(trgdir);
-end
+    if ~exist(trgdir,'file');
+        mkdir(trgdir);
+    end
 
-srcfns=dir(fullfile(srcdir,[srcpat srcext]));
-trgfns=dir(fullfile(trgdir,[srcpat trgext]));
+    srcfns=dir(fullfile(srcdir,[srcpat srcext]));
+    nsrc=numel(srcfns);
+    if nsrc==0
+        error('No files found matching %s%s in %s',[srcpat srcext],srcdir);
+    end
 
-nsrc=numel(srcfns);
-ntrg=numel(trgfns);
+    outputs=cell(nsrc,1);
 
-outputs=cell(0);
+    p=path();
+    has_pwd=~isempty(strfind(p,medir));
+    if ~has_pwd
+        addpath(medir)
+        cleaner2=onCleanup(@()rmpath(medir));
+    end
 
-p=path();
-has_pwd=~isempty(findstr(pdir,p));
-if ~has_pwd
-    addpath(pdir)
-end
+    total_time_took=0;
 
-addpath(pdir);
-for k=1:nsrc
-    cd(pdir);
-    update=true;
-    srcfn=fullfile(srcdir,srcfns(k).name);
-    [p,srcnm,ext]=fileparts(srcfn);
-    for j=1:ntrg
-        [p,trgnm,ext]=fileparts(trgfns(j).name);
-        if ~force && strcmp(srcnm, trgnm) && ...
-                    srcfns(k).datenum < trgfns(j).datenum
-            update=false;
-            fprintf('skipping %s%s (%s%s)\n',...
-                        trgnm,trgext,srcnm,srcext);
-            outputs{end+1}=srcnm;
-            break;
+    output_pos=0;
+    for k=1:nsrc
+        cd(medir);
+        srcfn=fullfile(srcdir,srcfns(k).name);
+        [srcpth,srcnm,unused]=fileparts(srcfn);
+        trgfn=fullfile(trgdir,[srcnm trgext]);
+
+        [needs_update,build_msg]=target_needs_update(srcfn,trgfn);
+        if force
+            build_msg=sprintf('update forced: %s',srcfn);
         end
+
+        fprintf(build_msg);
+
+        do_update=needs_update || force;
+
+        if do_update
+            fprintf('\n   building ... ');
+            cd(srcpth);
+            clock_start=clock();
+
+            is_built=publish_wrapper(srcfn,trgfn);
+
+            clock_end=clock();
+            time_took=etime(clock_end,clock_start);
+            total_time_took=total_time_took+time_took;
+
+            cd(medir);
+
+            if is_built
+                outcome_msg=' done';
+            else
+                outcome_msg=' !! failed';
+            end
+
+            status_msg=sprintf('%s (%.1f sec)', outcome_msg,time_took);
+        else
+            status_msg='';
+        end
+
+        fprintf('%s\n', status_msg);
+
+        output_pos=output_pos+1;
+        outputs{output_pos}=srcnm;
     end
-    
-    if ~update
-        continue;
+
+    fprintf('Processed %d files (%.1f sec)\n',output_pos,total_time_took);
+
+    outputfn=fullfile(trgdir, summaryfn);
+    fid=fopen(outputfn,'w');
+    cleaner3=onCleanup(@()fclose(fid));
+    fprintf(fid,['<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN"'...
+            '>\n']);
+    fprintf(fid,['<HTML><HEAD><TITLE>Index of matlab outputs</TITLE>'...
+                    '</HEAD>\n<BODY>Matlab output<UL>\n']);
+
+    for k=1:output_pos
+        nm=outputs{k};
+        fprintf(fid,'<LI><A HREF="%s%s">%s</A></LI>\n',nm,trgext,nm);
     end
-    
-    fprintf('building: %s ...', srcnm);
-    tmpfn=fullfile(tmpdir,srcfns(k).name);
-    remove_annotation(srcfn, tmpfn);
-    cd(tmpdir);
+    fprintf(fid,['</UL>Back to <A HREF="../../index.html">index</A>.'...
+                    '</BODY></HTML>\n']);
+    fprintf('Index written to %s\n', outputfn);
+
+
+function is_built=publish_wrapper(srcfn,trgfn)
+    [srcdir,srcnm,srcext]=fileparts(srcfn);
+    trgdir=fileparts(trgfn);
+
     is_built=false;
-    try
-        p=publish(srcnm, struct('outputDir',trgdir,'catchError',false));
-        is_built=true;
-    catch me
-        fnout=fullfile(trgdir,[srcnm trgext]);
-        if exist(fnout,'file')
-            delete(fnout);
+
+    if cosmo_wtf('is_matlab')
+        try
+            publish(srcnm, struct('outputDir',trgdir,'catchError',false));
+            is_built=true;
+        catch me
+            if exist(trgfn,'file')
+                delete(trgfn);
+            end
+
+            warning('Unable to build %s%s: %s',srcnm,srcext,...
+                                            me.message);
+            fprintf('%s\n', me.getReport);
         end
-        
-        warning('Unable to build %s%s: %s', srcnm, srcext, me.message);
-        fprintf('%s\n', me.getReport);
+    else
+        orig_pwd=pwd();
+        orig_path=path();
+
+        cleaner1=onCleanup(@()cd(orig_pwd));
+        cleaner2=onCleanup(@()path(orig_path));
+
+        try
+            addpath(srcdir);
+            cd(trgdir);
+            publish(srcnm,'format','html','imageFormat','png')
+            close all;
+            is_built=true;
+
+        catch
+            if exist(trgfn,'file')
+                delete(trgfn);
+            end
+
+            me=lasterror();
+
+            msg=sprintf('Unable to build %s%s: %s\n',srcnm,srcext,...
+                                            me.message);
+
+            s=me.stack;
+            for j=1:numel(s)
+                msg=sprintf('%s\n  %s:%s', msg, s(j).file, s(j).line);
+            end
+
+            warning('%s',msg);
+        end
     end
-    cd(pdir);
-        
-    if ~is_built
-        continue
+
+
+
+
+
+function [force, srcpat, dryrun]=process_input(varargin)
+    force=false;
+    srcpat=[];
+    dryrun=false;
+    n=numel(varargin);
+
+    for k=1:n
+        arg=varargin{k};
+        if ischar(arg)
+            if strcmp(arg,'-force')
+                force=true;
+            elseif strcmp(arg,'-dry')
+                dryrun=true;
+            elseif ~isempty(srcpat)
+                error('multiple inputs found, this is not supported');
+            else
+                srcpat=arg;
+            end
+        else
+            error('Illegal argument at position %d - expected string', k);
+        end
     end
-    fprintf(' done\n');
-    
-    outputs{end+1}=srcnm;
-end
-       
-if ~has_pwd
-    rmpath(pdir);
-end
-
-outputfn=fullfile(trgdir, summaryfn);
-fid=fopen(outputfn,'w');
-fprintf(fid,['<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN"'...
-        '>\n']);
-fprintf(fid,'<HTML><HEAD><TITLE>Index of matlab outputs</TITLE></HEAD>\n');
-fprintf(fid,'<BODY>Matlab output<UL>\n');
-
-n=numel(outputs);
-for k=1:n
-    nm=outputs{k};
-    fprintf(fid,'<LI><A HREF="%s%s">%s</A></LI>\n',nm,trgext,nm);
-end
-fprintf(fid,'</UL>Back to <A HREF="../../index.html">index</A>.</BODY></HTML>\n');
-fclose(fid);
-    
-fprintf('Index written to %s\n', outputfn); 
 
 
-function remove_annotation(srcfn,trgfn)
-
-if strcmpi(srcfn,trgfn)
-    error('source and target are the same: %s', srcfn);
-end
-
-fid=fopen(srcfn);
-wid=fopen(trgfn,'w');
-
-while true
-    line=fgetl(fid);
-    if ~ischar(line)
-        break
+    if isequal(srcpat,[])
+        srcpat='*_*';
     end
-    
-    if startswith(line,'% >>') || startswith(line,'% <<')
-        continue
+
+function [tf,msg]=target_needs_update(srcfn,trgfn)
+    % helper function to see if html is out of date
+    [unused,root,srcext]=fileparts(srcfn);
+    [unused,root_alt,trgext]=fileparts(trgfn);
+    assert(isequal(root,root_alt));
+
+    srcname=[root,srcext];
+    trgname=[root,trgext];
+    t_trg=time_last_changed(trgfn);
+    if isnan(t_trg)
+        % does not exist, so needs update
+        tf=true;
+        msg=sprintf('not found: %s', trgname);
+        return;
     end
-    
-    fprintf(wid,'%s\n',line);
-end
 
-fclose(fid);
-fclose(wid);
+    if is_in_staging(srcfn) || is_untracked(srcfn)
+        % changes since last commit, see when changes were made
+        t_src=time_last_changed(srcfn);
+        tf=isnan(t_src) || t_trg<t_src;
+        msg=sprintf('modified: %s', srcname);
+    else
+        % no changes since last commit, see when last commit was made
+        t_src=time_last_commit(srcfn);
+        tf=isnan(t_src) || t_trg<t_src;
+        msg=sprintf('recent commit: %s',srcname);
+    end
 
-    
-function s=startswith(haystack, needle)
+    if ~tf
+        msg=sprintf('up to date: %s',trgname);
+    end
 
-t=strtrim(haystack);
-n=numel(needle);
-if numel(t) < n
-    s=false;
-    return;
-end
+function t=time_last_changed(fn)
+    d=dir(fn);
+    if isempty(d)
+        t=NaN;
+        return
+    end
+    assert(numel(d)==1);
+    t=(d.datenum-datenum(1970,1,1))*86400;
 
-s=~isempty(strfind(t(1:n), needle));
-    
+function r=run_git(args)
+    prefix='export TERM=ansi; git ';
+    cmd=[prefix args];
+
+    [e,r]=unix(cmd);
+
+    if e
+        fprintf(2,'Unable to run git, or an error was produced\n');
+        error(r);
+    end
+
+function tf=is_untracked(srcfn)
+    untracked=run_git('ls-files . --exclude-standard --others');
+    tf=cosmo_match({srcfn},untracked);
 
 
+function t=time_last_commit(srcfn)
+    cmd=sprintf('log -n 1 --pretty=format:%%ct -- %s',srcfn);
+    r=run_git(cmd);
+
+    t=str2double(regexp(r,'(\d*)','match','once'));
+
+    if isempty(t)
+        t=NaN;
+    end
+    assert(numel(t)==1);
+
+function tf=is_in_staging(fn)
+    in_staging_str=run_git('diff HEAD  --name-only | xargs basename');
+    in_staging=cosmo_strsplit(in_staging_str,'\n');
+
+    basefn=cosmo_strsplit(fn,filesep,-1);
+    tf=cosmo_match({basefn},in_staging);
 

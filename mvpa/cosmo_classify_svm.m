@@ -1,64 +1,107 @@
 function predicted=cosmo_classify_svm(samples_train, targets_train, samples_test, opt)
-% SVM classifier that uses classify_svm_2class to provide 
-% multi-class classification with SVM.
+% classifier wrapper that uses either matlab's or libsvm's SVM.
 %
-% predicted=cosmo_classify_meta_multiclass(samples_train, targets_train, samples_test, opt)
+% predicted=cosmo_classify_svm(samples_train, targets_train, samples_test, opt)
 %
-% Inputs
+% Inputs:
 %   samples_train      PxR training data for P samples and R features
 %   targets_train      Px1 training data classes
 %   samples_test       QxR test data
-%   opt                (optional) struct with options for svm_classify
+%   opt                (optional) struct with options for classification
+%                      If a field 'svm' is present it should be either
+%                      'libsvm' or 'matlabsvm' to use that SVM. If this
+%                      field is absent it will be selected automatically.
 %
 % Output
 %   predicted          Qx1 predicted data classes for samples_test
 %
-% See also svmtrain, svmclassify, cosmo_classify_svm_2class
+% Notes:
+%  - cosmo_classify_svm can use either libsvm or matlab's svm, whichever is
+%    present
+%  - if both are present, then there is a conflict because 'svmtrain' is
+%    implemented differently by libsvm or matlab's svm. The path setting
+%    determines which svm implementation is used.
+%  - when using libsvm it requires version 3.18 or later:
+%    https://github.com/cjlin1/libsvm
+%  - for a guide on svm classification, see
+%      http://www.csie.ntu.edu.tw/~cjlin/papers/guide/guide.pdf
+%  - It is usually a good idea to scale the data when using SVM. matlab's
+%    svm does this automatically, libsvm does not.
+%    Note that cosmo_crossvalidate and cosmo_crossvalidation_measure
+%    provide an option 'normalization' to perform data scaling.
 %
-% NNO Aug 2013
+% Example:
+%     ds=cosmo_synthetic_dataset('ntargets',5,'nchunks',10);
+%     test_chunk=2;
+%     te=cosmo_slice(ds,ds.sa.chunks==test_chunk);
+%     tr=cosmo_slice(ds,ds.sa.chunks~=test_chunk);
+%     pred=cosmo_classify_svm(tr.samples,tr.sa.targets,te.samples,struct);
+%     disp(pred)
+%     >      3
+%     >      2
+%     >      3
+%     >      4
+%     >      5
+%
+% See also: svmtrain, svmclassify, cosmo_classify_svm,
+%           cosmo_classify_libsvm, cosmo_crossvalidate,
+%           cosmo_crossvalidation_measure
+%
+% NNO Aug 2014
 
-if nargin<4, opt=struct(); end
+persistent cached_classifier_func;
+persistent cached_classifier_name;
 
-[ntrain, nfeatures]=size(samples_train);
-[ntest, nfeatures_]=size(samples_test);
-ntrain_=numel(targets_train);
+auto_select=true;
 
-if nfeatures~=nfeatures_ || ntrain_~=ntrain, error('illegal input size'); end
-
-classes=unique(targets_train);
-nclasses=numel(classes);
-
-% number of pair-wise comparisons
-ncombi=nclasses*(nclasses-1)/2;
-
-% allocate space for all predictions
-all_predicted=zeros(ntest, ncombi);
-
-% Consider all pairwise comparisons (over classes)
-% and store the predictions in all_predicted
-pos=0;
-for k=1:(nclasses-1)
-    for j=(k+1):nclasses
-        pos=pos+1;
-        % classify between 2 classes only (from classes(k) and classes(j)).
-        % >>
-        mask_k=targets_train==classes(k);
-        mask_j=targets_train==classes(j);
-        mask=mask_k | mask_j;
-        
-        pred=cosmo_classify_svm_2class(samples_train(mask,:), targets_train(mask), samples_test, opt);
-        % <<
-        all_predicted(:,pos)=pred;
+if nargin>=4
+    if isfield(opt,'svm')
+        svm_name=opt.svm;
+        auto_select=false;
+        opt=rmfield(opt,'svm');
     end
+else
+    opt=struct();
 end
 
-% find the classes that were predicted most often
-% the tricky part is to handle ties: there we take
-% a winner randomly (rather than the first) to avoid
-% any particular bias
-% XXX this is not very efficient - no idea how to
-% do this efficiently using matlab
+if ~isnumeric(cached_classifier_func) && ...
+                        (auto_select || strcmp(svm_name, ...
+                                        cached_classifier_name))
+    classifier_func=cached_classifier_func;
+    classifier_name=cached_classifier_name;
+else
+    if auto_select
+        svm_name='libsvm';
 
-[winners, test_classes]=cosmo_winner_indices(all_predicted);
+        if ~cosmo_check_external(svm_name, false) && ...
+                        cosmo_check_external('matlabsvm',false)
+            svm_name='matlabsvm';
+        end
+    end
 
-predicted=test_classes(winners);
+    % let it throw an error if there is a conflict (e.g. matlabsvm with
+    % neuroelf)
+    cosmo_check_external(svm_name);
+
+    switch svm_name
+        case 'libsvm'
+            classifier_func=@cosmo_classify_libsvm;
+        case 'matlabsvm';
+            classifier_func=@cosmo_classify_matlabsvm;
+        otherwise
+            error(['unsupported svm ''%s'': must be one of: '...
+                        'matlabsvm, libsvm'], svm_name);
+    end
+
+    cached_classifier_name=svm_name;
+end
+
+% ensure that the classifer func is not stored in this function if an error
+% occurs. After sucessful classifcation the classifier_func is restored.
+cached_classifier_func=[];
+
+predicted=classifier_func(samples_train, targets_train, samples_test, opt);
+
+cached_classifier_func=classifier_func;
+
+
